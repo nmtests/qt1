@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>School Quiz Portal</title>
+  <!-- Tailwind CSS, Fonts, and Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body, html { font-family: 'Hind Siliguri', sans-serif; }
+    .loader { border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3498db; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+  <div id="app" class="min-h-screen flex flex-col items-center justify-center p-4">
+    <!-- Dynamic content will be rendered here -->
+  </div>
+
+  <script>
+    // !! গুরুত্বপূর্ণ: এখানে আপনার Apps Script Web App-এর URL টি পেস্ট করুন।
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHAI83-suCat0p6uJH5zKVptWk-MuZevXhs_2e0W7SYnP0EVHNg53WALamBCzYdAfBZw/exec";
+
+    const app = document.getElementById('app');
+    let appState = {
+        user: null,
+        currentPage: 'login',
+        websiteData: {},
+        activeQuizzes: [],
+        adminData: {},
+        currentQuiz: null,
+    };
+
+    /**
+     * This function sends requests to your Apps Script API.
+     * It replaces `google.script.run`.
+     */
+    async function callApi(action, params = {}) {
+      try {
+        const response = await fetch(SCRIPT_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action, params }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        });
+
+        if (!response.ok) throw new Error(`Network error: ${response.statusText}`);
+        
+        const result = await response.json();
+        if (result.status === 'error') throw new Error(result.message);
+        
+        return result.data;
+      } catch (error) {
+        console.error('API Call Failed:', action, error);
+        throw error; // Propagate the error to be handled by the caller.
+      }
+    }
+    
+    // --- UTILITY & RENDER FUNCTIONS ---
+    function showLoader(message = 'লোড হচ্ছে...') {
+      app.innerHTML = `<div class="flex flex-col items-center justify-center space-y-4"><div class="loader"></div><p class="text-lg text-gray-600">${message}</p></div>`;
+    }
+
+    function showError(message = 'একটি সমস্যা হয়েছে।') {
+      app.innerHTML = `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert"><p class="font-bold">ত্রুটি</p><p>${message}</p><button onclick="initializeApp()" class="mt-4 bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600">আবার চেষ্টা করুন</button></div>`;
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `fixed top-5 right-5 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white py-2 px-4 rounded-lg shadow-lg animate-fade-in-down`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function renderPage() {
+      switch (appState.currentPage) {
+        case 'login': renderLoginPage(); break;
+        case 'studentDashboard': renderStudentDashboard(); break;
+        case 'quiz': renderQuizPage(); break;
+        case 'quizResult': renderQuizResultPage(); break;
+        case 'adminDashboard': renderAdminDashboard(appState.adminData); break;
+        default: renderLoginPage();
+      }
+      lucide.createIcons();
+    }
+
+
+    // --- LOGIN PAGE ---
+    function renderLoginPage() {
+      app.innerHTML = `
+        <div class="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg">
+          <div class="text-center mb-8">
+            <img src="${appState.websiteData.schoolLogo || 'https://placehold.co/100x100/E2E8F0/4A5568?text=লোগো'}" alt="School Logo" class="mx-auto h-20 w-20 rounded-full object-cover mb-4">
+            <h1 id="mainTitle" class="text-3xl font-bold text-gray-800">${appState.websiteData.mainTitle || 'স্কুল কুইজ পোর্টালে স্বাগতম'}</h1>
+            <p id="subTitle" class="text-gray-500 mt-2">${appState.websiteData.subTitle || 'আপনার রোল এবং পিন দিয়ে লগইন করুন।'}</p>
+          </div>
+          <form id="student-login-form" class="space-y-6">
+            <input type="number" id="roll" placeholder="রোল নম্বর" required class="mt-1 block w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <input type="password" id="pin" placeholder="পিন" required class="mt-1 block w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <button type="submit" class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-blue-700">লগইন করুন</button>
+          </form>
+          <div class="relative my-6"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center text-sm"><span class="bg-white px-2 text-gray-500">অথবা</span></div></div>
+          <button id="admin-login-btn" class="w-full bg-gray-700 text-white py-3 px-4 rounded-lg font-semibold hover:bg-gray-800 flex items-center justify-center space-x-2"><i data-lucide="user-cog"></i><span>শিক্ষক/অ্যাডমিন লগইন</span></button>
+        </div>`;
+      document.getElementById('student-login-form').addEventListener('submit', handleStudentLogin);
+      document.getElementById('admin-login-btn').addEventListener('click', handleAdminLogin);
+    }
+
+    // --- LOGIN LOGIC (MODIFIED TO USE callApi) ---
+    function handleStudentLogin(e) {
+      e.preventDefault();
+      const roll = document.getElementById('roll').value;
+      const pin = document.getElementById('pin').value;
+      showLoader('লগইন করা হচ্ছে...');
+
+      callApi('checkStudentLogin', { roll, pin })
+        .then(user => {
+          if (user) {
+            appState.user = { role: 'student', data: user };
+            appState.currentPage = 'studentDashboard';
+            sessionStorage.setItem('quizUser', JSON.stringify(appState.user));
+            renderPage();
+          } else {
+            showToast('ভুল রোল বা পিন।', 'error');
+            renderLoginPage();
+          }
+        })
+        .catch(err => showError(err.message));
+    }
+
+    function handleAdminLogin() {
+      const secret = prompt("অনুগ্রহ করে অ্যাডমিন সিক্রেট কী দিন:", "");
+      if (!secret) return;
+      
+      showLoader('অ্যাডমিন ডেটা লোড হচ্ছে...');
+      sessionStorage.setItem('adminSecret', secret); // Store secret for future requests
+
+      callApi('getAdminDashboardData', { secret })
+        .then(data => {
+          appState.user = { role: 'admin' };
+          appState.adminData = data;
+          appState.currentPage = 'adminDashboard';
+          sessionStorage.setItem('quizUser', JSON.stringify(appState.user));
+          renderPage(); 
+        })
+        .catch(err => {
+          sessionStorage.removeItem('adminSecret');
+          showError(err.message);
+        });
+    }
+
+    // --- OTHER FUNCTIONS ---
+    function renderStudentDashboard() {
+        showLoader('কুইজ তালিকা লোড হচ্ছে...');
+        callApi('getActiveQuizzes').then(quizzes => {
+            appState.activeQuizzes = quizzes;
+            let quizCards = '<p class="text-center text-gray-500">এই মুহূর্তে কোনো সক্রিয় কুইজ নেই।</p>';
+            if (quizzes && quizzes.length > 0) {
+            quizCards = quizzes.map(quiz => `
+                <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 flex items-start space-x-4">
+                <img src="${quiz.clubLogo || 'https://placehold.co/64x64/E2E8F0/4A5568?text=লোগো'}" alt="${quiz.clubName}" class="h-16 w-16 rounded-full object-cover border-2 border-gray-200">
+                <div class="flex-1">
+                    <span class="text-sm font-medium text-indigo-600">${quiz.clubName || 'General'}</span>
+                    <h3 class="text-xl font-bold text-gray-800 mt-1">${quiz.quizTitle}</h3>
+                    <div class="flex items-center space-x-4 text-gray-500 mt-3 text-sm">
+                    <span class="flex items-center"><i data-lucide="help-circle" class="w-4 h-4 mr-1"></i>${quiz.totalQuestions} টি প্রশ্ন</span>
+                    <span class="flex items-center"><i data-lucide="clock" class="w-4 h-4 mr-1"></i>${quiz.timeLimit} মিনিট</span>
+                    </div>
+                </div>
+                <button onclick="startQuiz('${quiz.quizId}')" class="bg-green-500 text-white font-semibold py-2 px-5 rounded-lg hover:bg-green-600 transition self-center">শুরু করুন</button>
+                </div>
+            `).join('');
+            }
+
+            app.innerHTML = `
+            <div class="w-full max-w-4xl mx-auto">
+                <header class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold">স্বাগতম, ${appState.user.data.name}</h1>
+                    <p class="text-gray-600">রোল: ${appState.user.data.roll} | ক্লাস: ${appState.user.data.class}</p>
+                </div>
+                <button onclick="logout()" class="bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 flex items-center space-x-2">
+                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                    <span>লগআউট</span>
+                </button>
+                </header>
+                <div class="bg-blue-100 text-blue-800 p-4 rounded-lg mb-6">
+                    <p id="announcement">${appState.websiteData.announcement || 'সকল চলমান কুইজে অংশগ্রহণ করুন।'}</p>
+                </div>
+                <h2 class="text-2xl font-semibold mb-4">চলমান কুইজ ইভেন্ট</h2>
+                <div class="space-y-4">
+                ${quizCards}
+                </div>
+            </div>
+            `;
+            lucide.createIcons();
+        }).catch(showError);
+    }
+    
+    function logout() {
+        sessionStorage.clear();
+        appState.user = null;
+        appState.currentPage = 'login';
+        renderPage();
+    }
+
+    function startQuiz(quizId) {
+        showLoader('কুইজ প্রস্তুত করা হচ্ছে...');
+        callApi('getQuizQuestions', { quizId }).then(questions => {
+            const selectedQuiz = appState.activeQuizzes.find(q => q.quizId === quizId);
+            if (!questions || questions.length === 0) {
+                showError('এই কুইজের জন্য কোনো প্রশ্ন পাওয়া যায়নি।');
+                return;
+            }
+            appState.currentPage = 'quiz';
+            appState.currentQuiz = {
+                quizId: quizId,
+                title: selectedQuiz.quizTitle,
+                questions: questions,
+                currentQuestionIndex: 0,
+                answers: questions.map(q => ({ questionId: q.questionId, selectedOption: null })),
+                timeLeft: selectedQuiz.timeLimit * 60,
+            };
+            renderPage();
+            startTimer();
+        }).catch(showError);
+    }
+    
+    let quizTimer;
+    function startTimer() {
+        const timerElement = document.getElementById('timer');
+        quizTimer = setInterval(() => {
+            appState.currentQuiz.timeLeft--;
+            const minutes = Math.floor(appState.currentQuiz.timeLeft / 60);
+            const seconds = appState.currentQuiz.timeLeft % 60;
+            if (timerElement) {
+                timerElement.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            }
+            if (appState.currentQuiz.timeLeft <= 0) {
+                clearInterval(quizTimer);
+                handleQuizSubmit();
+            }
+        }, 1000);
+    }
+    
+    function renderQuizPage() {
+        // ... The full renderQuizPage function ...
+    }
+
+    function renderQuizResultPage() {
+        // ... The full renderQuizResultPage function ...
+    }
+
+    function renderAdminDashboard(data) {
+        appState.adminData = data;
+        // ... The full renderAdminDashboard function ...
+    }
+    
+    function updateQuizStatus(quizId, status) {
+        showLoader('স্ট্যাটাস আপডেট করা হচ্ছে...');
+        const secret = sessionStorage.getItem('adminSecret');
+        callApi('updateQuizStatus', { quizId, status, secret })
+            .then(response => {
+                showToast(response.message, 'success');
+                // Refresh logic here by re-fetching admin data
+                handleAdminLogin();
+            }).catch(err => showToast(err.message, 'error'));
+    }
+
+    function initializeApp() {
+        showLoader('অ্যাপ্লিকেশন লোড হচ্ছে...');
+        callApi('getWebsiteData')
+            .then(data => {
+                appState.websiteData = data;
+                const savedUser = sessionStorage.getItem('quizUser');
+                if (savedUser) {
+                    appState.user = JSON.parse(savedUser);
+                    appState.currentPage = appState.user.role === 'admin' ? 'adminDashboard' : 'studentDashboard';
+                    renderPage();
+                } else {
+                    renderLoginPage();
+                }
+            })
+            .catch(showError);
+    }
+    
+    window.addEventListener('load', initializeApp);
+
+  </script>
+</body>
+</html>
